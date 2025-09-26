@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 
 async function main() {
   // Replace with your deployed contract address
-  const contractAddress = "0xd9145CCE52D386f254917e481eB44e9943F39138";
+  const contractAddress = process.env.CONTRACT_ADDRESS || "YOUR_CONTRACT_ADDRESS_HERE";
 
   console.log("🔗 Interacting with Voting contract at:", contractAddress);
 

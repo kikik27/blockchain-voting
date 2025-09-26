@@ -47,3 +47,9 @@ coverage
 
 # Hardhat specific
 /contracts/flattened
+
+# Temporary files
+*.tmp
+
+# Environment variable example file
+.env
