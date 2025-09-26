@@ -202,6 +202,52 @@
       animation: spin 1s linear infinite;
     }
 
+    .owner-box {
+      margin: 20px auto;
+      padding: 20px;
+      max-width: 400px;
+      border: 2px solid #4caf50;
+      border-radius: 12px;
+      background: #f9fff9;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .owner-box h2 {
+      color: #2e7d32;
+      font-size: 20px;
+      margin-bottom: 15px;
+    }
+
+    .owner-box label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+
+    .owner-box input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+
+    .owner-box button {
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .owner-box button:hover {
+      background: #388e3c;
+    }
+
+
     @keyframes spin {
       0% {
         transform: rotate(0deg);
@@ -258,17 +304,27 @@
           <span id="statusText">Not Connected</span>
         </div>
         <button class="btn" id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
-      </div>
-
-      <div class="contract-form">
-        <input type="text" id="contractAddress" placeholder="Enter contract address (0x...)" value="0x...">
-        <button class="btn" onclick="loadContract()">Load Contract</button>
+        <button class="btn" id="disconnectBtn" style="display:none;" onclick="disconnectWallet()">Disconnect</button>
       </div>
 
       <div id="accountInfo" style="display: none;">
         <p><strong>Account:</strong> <span id="userAccount"></span></p>
         <p><strong>Network:</strong> <span id="networkInfo"></span></p>
       </div>
+    </div>
+
+    <div class="status-card" id="ownerActions" style="display:none; margin-top:20px;">
+
+      <h2>👑 Owner Actions</h2>
+
+      <button class="btn" onclick="startVoting()">Start Voting</button>
+      <button class="btn" onclick="stopVoting()">Stop Voting</button>
+
+      <div class="contract-form">
+        <input type="text" class="contract-form" id="newCandidate" placeholder="Candidate Name" />
+      </div>
+      <button class="btn" onclick="addCandidate()">Add Candidate</button>
+
     </div>
 
     <div id="contractData" style="display: none;">
@@ -299,12 +355,14 @@
       <div class="candidates-grid" id="candidatesGrid">
         <!-- Candidates will be loaded here -->
       </div>
+
     </div>
 
     <div id="messages"></div>
   </div>
 
   <script>
+    const CONTRACT_ADDRESS = "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9";
     let provider, signer, contract;
     let userAccount = '';
 
@@ -318,6 +376,10 @@
       "function getVotingStats() external view returns (uint256 totalVotesCount, uint256 candidateCount, bool isActive)",
       "function owner() external view returns (address)",
       "function votingActive() external view returns (bool)",
+
+      "function setVotingStatus(bool active) external",
+      "function addCandidate(string memory candidateName) external",
+
       "event Voted(address indexed voter, uint256 candidateIndex, string candidateName)"
     ];
 
@@ -337,12 +399,30 @@
           document.getElementById('networkInfo').textContent = `${network.name} (${network.chainId})`;
           document.getElementById('userAccount').textContent = `${userAccount.slice(0, 6)}...${userAccount.slice(-4)}`;
           document.getElementById('accountInfo').style.display = 'block';
+          document.getElementById("connectBtn").style.display = "none";
+          document.getElementById("disconnectBtn").style.display = "inline-block";
+
+          await loadContract();
         } else {
           showMessage('Please install MetaMask!', 'error');
         }
       } catch (error) {
         showMessage(`Error: ${error.message}`, 'error');
       }
+    }
+
+    function disconnectWallet() {
+      provider = null;
+      signer = null;
+      votingContract = null;
+
+      updateConnectionStatus(false);
+      showMessage('Wallet disconnected.', 'success');
+
+      document.getElementById('accountInfo').style.display = 'none';;
+      document.getElementById("connectBtn").style.display = "inline-block";
+      document.getElementById("disconnectBtn").style.display = "none";
+      document.getElementById("owner-settings").style.display = "none";
     }
 
     function updateConnectionStatus(connected) {
@@ -370,13 +450,19 @@
           return;
         }
 
-        const address = document.getElementById('contractAddress').value;
-        if (!ethers.isAddress(address)) {
+        if (!ethers.isAddress(CONTRACT_ADDRESS)) {
           showMessage('Invalid contract address!', 'error');
           return;
         }
 
-        contract = new ethers.Contract(address, VOTING_ABI, signer);
+        contract = new ethers.Contract(CONTRACT_ADDRESS, VOTING_ABI, signer);
+        await checkIsOwner(CONTRACT_ADDRESS).then(isOwner => {
+          if (isOwner) {
+            console.log("User is the contract owner.");
+            document.getElementById("ownerActions").style.display = "block";
+          }
+        });
+        await contract.getCandidateCount();
 
         // Test contract connection
         await contract.getCandidateCount();
@@ -391,6 +477,7 @@
           showMessage(`Vote cast for ${candidateName}!`, 'success');
           loadContractData();
         });
+
 
       } catch (error) {
         showMessage(`Error loading contract: ${error.message}`, 'error');
@@ -507,6 +594,84 @@
         window.location.reload();
       });
     }
+
+    document.getElementById("setTitleBtn").addEventListener("click", async () => {
+      const title = document.getElementById("votingTitle").value;
+      try {
+        const tx = await votingContract.setVotingTitle(title);
+        await tx.wait();
+        alert("Voting title updated!");
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    });
+
+    async function checkIsOwner(contractAddress) {
+      const userAddress = await signer.getAddress();
+      const contractTemp = new ethers.Contract(contractAddress, VOTING_ABI, signer);
+      const owner = await contractTemp.owner();
+      return userAddress.toLowerCase() === owner.toLowerCase();
+    }
+
+    async function setVotingTitle() {
+      try {
+        const title = document.getElementById("titleInput").value;
+        if (!title) {
+          showMessage("Please enter a title!", "error");
+          return;
+        }
+
+        const tx = await contract.setVotingTitle(title);
+        showMessage("Transaction sent! Waiting for confirmation...", "success");
+        await tx.wait();
+        showMessage("Voting title updated!", "success");
+      } catch (error) {
+        showMessage(`Error: ${error.message}`, "error");
+      }
+    }
+
+    async function startVoting() {
+      try {
+        const tx = await contract.setVotingStatus(true);
+        showMessage("Starting voting...", "success");
+        await tx.wait();
+        showMessage("Voting started ✅", "success");
+        await loadContractData();
+      } catch (error) {
+        showMessage(`Error: ${error.message}`, "error");
+      }
+    }
+
+    async function stopVoting() {
+      try {
+        const tx = await contract.setVotingStatus(false);
+        showMessage("Stopping voting...", "success");
+        await tx.wait();
+        showMessage("Voting stopped ❌", "success");
+        await loadContractData();
+      } catch (error) {
+        showMessage(`Error: ${error.message}`, "error");
+      }
+    }
+
+    async function addCandidate() {
+      try {
+        const name = document.getElementById("newCandidate").value;
+        if (!name) {
+          showMessage("Please enter candidate name!", "error");
+          return;
+        }
+        const tx = await contract.addCandidate(name);
+        showMessage("Adding candidate...", "success");
+        await tx.wait();
+        showMessage(`Candidate "${name}" added ✅`, "success");
+        await loadContractData();
+      } catch (error) {
+        showMessage(`Error: ${error.message}`, "error");
+      }
+    }
+
+    window.addEventListener("load", connectWallet);
   </script>
 </body>
 
